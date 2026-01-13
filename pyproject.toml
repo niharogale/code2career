@@ -1,0 +1,10 @@
+[project]
+name = "autodoc"
+version = "0.1.0"
+description = "A tool for automatic README and resume generation for GitHub repositories."
+dependencies = [
+    "typer>=0.21.1"
+]
+
+[project.scripts]
+autodoc = "autodoc.cli:app"

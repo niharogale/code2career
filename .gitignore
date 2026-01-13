@@ -1,1 +1,6 @@
 test*/
+.venv/
+__pycache__/
+autodoc.egg-info/
+.env
+.vscode/
