@@ -11,27 +11,44 @@ def default_state() -> Dict[str, Any]:
     Returns a default state according to the state schema
     """
     return {
+        "version": "1.0",
         "repo": {
             "name": "",
+            "root": "",
             "branch": "",
             "commit": ""
         },
         "last_scan": "",
         "files": {},
-        "dependencies": {},
-        "summary": {}
+        "readme_sections": {}
     }
+
+
+def get_state_path() -> Path:
+    """
+    Returns the path to the state file.
+    Centralizes state file location for consistency across the codebase.
+    """
+    return STATE_PATH
 
 
 def load_state() -> Dict[str, Any]:
     """
     Load the state from the .autodoc/state.json
-    If the file doesn't exist, return a default state
+    If the file doesn't exist or is empty/invalid, return a default state
     """
     if not STATE_PATH.exists():
         return default_state()
-    with open(STATE_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            state = json.load(f)
+            # Handle empty state file or missing required keys
+            if not state or "version" not in state:
+                return default_state()
+            return state
+    except (json.JSONDecodeError, IOError):
+        return default_state()
     
 def save_state(state: Dict[str, Any]) -> None:
     """
