@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-STATE_PATH = Path.home(".autodoc_state.json")
+STATE_PATH = Path.cwd() / ".autodoc" / "state.json"
 
 
 def default_state() -> Dict[str, Any]:
@@ -52,7 +52,7 @@ def update_file(
     Update or add a file entry in state['files'].
     """
     if last_modified is None:
-        last_modified = datetime.now(datetime.timezone.utc).isoformat()
+        last_modified = datetime.now(timezone.utc).isoformat()
     
     state["files"][file_path] = {
         "hash": file_hash,
