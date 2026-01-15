@@ -29,3 +29,19 @@ TBD
 
 ## 5. Open Questions
 - TBD
+
+
+## Scan Control Flow (v1)
+
+autodoc scan
+  -> cli.scan()
+    -> load_state()
+    -> scan_repository()
+      -> discover_files()
+      -> compute_hashes()
+      -> diff_with_previous_state()
+      -> update_file/remove_file
+    -> save_state()
+
+
+# TODO(v2): replace heuristic analysis with AST-based diffing
