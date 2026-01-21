@@ -1,7 +1,7 @@
 import typer
 
 from autodoc.core.repository import Repository
-from autodoc.core.scan import get_changed_files, scan_repository, summarize_changes
+from autodoc.core.scan import scan_repository, apply_scan_to_state
 from autodoc.core.state import get_state_path, load_state, save_state
 
 app = typer.Typer(
@@ -9,8 +9,8 @@ app = typer.Typer(
 )
 
 
-@app.command()
-def scan():
+@app.callback(invoke_without_command=True)
+def scan(ctx: typer.Context):
     """
     Scan repository and update the structural state accordingly.
     """
@@ -26,28 +26,37 @@ def scan():
     state = load_state()
     
     # Get repository context
-    repo = Repository.from_cwd()
+    try:
+        repo = Repository.from_cwd()
+    except ValueError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1)
     
     # Scan repository and detect changes
-    changes = scan_repository(repo, state)
+    scan_result = scan_repository(repo, state)
+    
+    # Apply scan results to state
+    apply_scan_to_state(state, scan_result, repo)
     
     # Save updated state
     save_state(state)
     
     # Display results
-    summary = summarize_changes(changes)
     typer.echo(f"\nScan completed!")
-    typer.echo(f"  Total files: {summary['total']}")
-    typer.echo(f"  New: {summary['new']}")
-    typer.echo(f"  Modified: {summary['modified']}")
-    typer.echo(f"  Deleted: {summary['deleted']}")
-    typer.echo(f"  Unchanged: {summary['unchanged']}")
+    typer.echo(f"  Total files: {scan_result.total_files}")
+    typer.echo(f"  Added: {len(scan_result.added)}")
+    typer.echo(f"  Modified: {len(scan_result.modified)}")
+    typer.echo(f"  Deleted: {len(scan_result.deleted)}")
+    typer.echo(f"  Unchanged: {len(scan_result.unchanged)}")
     
     # Show changed files if any
-    changed = get_changed_files(changes)
-    if changed:
-        typer.echo(f"\nChanged files ({len(changed)}):")
-        for change in changed:
-            typer.echo(f"  [{change.change_type.value.upper()}] {change.path}")
+    if scan_result.has_changes:
+        typer.echo(f"\nChanged files:")
+        for path in scan_result.added:
+            typer.echo(f"  [ADDED] {path}")
+        for path in scan_result.modified:
+            typer.echo(f"  [MODIFIED] {path}")
+        for path in scan_result.deleted:
+            typer.echo(f"  [DELETED] {path}")
     else:
         typer.echo("\nNo changes detected.")

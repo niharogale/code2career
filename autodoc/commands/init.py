@@ -8,8 +8,8 @@ app = typer.Typer(
 )
 
 
-@app.command()
-def init():
+@app.callback(invoke_without_command=True)
+def init(ctx: typer.Context):
     """
     Initialize autodoc configuration and state.
     """
