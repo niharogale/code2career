@@ -1,48 +1,44 @@
 # autodoc/core/repository.py
-
 """
-Repository context class providing unified access to repository information.
+Repository context module - provides unified access to repository information.
 """
 
-import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Optional, List
 
 # File extensions we consider as source code
-SOURCE_EXTENSIONS: Set[str] = {
-    ".py",
-    ".js",
-    ".ts",
-    ".tsx",
-    ".jsx",
-    ".java",
-    ".go",
-    ".rs",
-    ".c",
-    ".cpp",
-    ".h",
-    ".hpp",
-    ".cs",
-    ".rb",
-    ".php",
-    ".swift",
-    ".kt",
-    ".scala",
-    ".md",
-    ".yaml",
-    ".yml",
-    ".json",
-    ".toml",
+SOURCE_EXTENSIONS = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".jsx": "javascript",
+    ".java": "java",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".php": "php",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".scala": "scala",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
 }
 
-# Directories to always ignore during scanning
-IGNORE_DIRS: Set[str] = {
+# Directories to ignore during scanning
+IGNORE_DIRS = {
     ".git",
     ".autodoc",
-    "venv",
     ".venv",
+    "venv",
     "env",
     ".env",
     "node_modules",
@@ -56,183 +52,226 @@ IGNORE_DIRS: Set[str] = {
     "*.egg-info",
 }
 
+# Files to always include (documentation files)
+DOC_FILES = {
+    "README.md",
+    "README.rst",
+    "README.txt",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "LICENSE.md",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "requirements.txt",
+    "setup.py",
+    "setup.cfg",
+}
+
 
 @dataclass
 class Repository:
     """
-    Unified context for a repository, providing access to:
-    - Repository root path
-    - Git information (branch, commit)
-    - File discovery
+    Unified repository context providing access to repo metadata and files.
     """
-
     root: Path
     name: str
-    branch: Optional[str] = None
-    commit: Optional[str] = None
-    autodoc_dir: Path = field(init=False)
+    branch: str
+    commit: str
 
-    def __post_init__(self):
-        self.autodoc_dir = self.root / ".autodoc"
-
+    @classmethod
+    def from_path(cls, path: Optional[Path] = None) -> "Repository":
+        """
+        Create a Repository context from a path (defaults to current directory).
+        
+        Args:
+            path: Path to the repository root. If None, uses current working directory.
+            
+        Returns:
+            Repository instance with git metadata populated.
+            
+        Raises:
+            ValueError: If the path is not a valid git repository.
+        """
+        root = Path(path) if path else Path.cwd()
+        root = root.resolve()
+        
+        # Verify it's a git repository
+        git_dir = root / ".git"
+        if not git_dir.exists():
+            raise ValueError(f"{root} is not a git repository (no .git directory)")
+        
+        # Get git metadata
+        name = root.name
+        branch = cls._get_git_branch(root)
+        commit = cls._get_git_commit(root)
+        
+        return cls(root=root, name=name, branch=branch, commit=commit)
+    
     @classmethod
     def from_cwd(cls) -> "Repository":
         """
         Create a Repository context from the current working directory.
-        Attempts to find git root if in a git repository.
+        Convenience method for the common case.
         """
-        cwd = Path.cwd()
-        root = cls._find_git_root(cwd) or cwd
-        name = root.name
-
-        branch = cls._get_git_branch(root)
-        commit = cls._get_git_commit(root)
-
-        return cls(root=root, name=name, branch=branch, commit=commit)
-
-    @classmethod
-    def from_path(cls, path: Path) -> "Repository":
-        """
-        Create a Repository context from a specified path.
-        """
-        root = path.resolve()
-        if not root.exists():
-            raise ValueError(f"Path does not exist: {root}")
-        if not root.is_dir():
-            raise ValueError(f"Path is not a directory: {root}")
-
-        name = root.name
-        branch = cls._get_git_branch(root)
-        commit = cls._get_git_commit(root)
-
-        return cls(root=root, name=name, branch=branch, commit=commit)
-
+        return cls.from_path(Path.cwd())
+    
     @staticmethod
-    def _find_git_root(start: Path) -> Optional[Path]:
-        """
-        Walk up the directory tree to find the git root.
-        Returns None if not in a git repository.
-        """
-        current = start.resolve()
-        while current != current.parent:
-            if (current / ".git").exists():
-                return current
-            current = current.parent
-        # Check root directory
-        if (current / ".git").exists():
-            return current
-        return None
-
-    @staticmethod
-    def _get_git_branch(root: Path) -> Optional[str]:
-        """
-        Get the current git branch name.
-        """
+    def _get_git_branch(root: Path) -> str:
+        """Get the current git branch name."""
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 cwd=root,
                 capture_output=True,
                 text=True,
-                check=True,
+                check=True
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
-            return None
-
+            return "unknown"
+    
     @staticmethod
-    def _get_git_commit(root: Path) -> Optional[str]:
-        """
-        Get the current git commit hash (short form).
-        """
+    def _get_git_commit(root: Path) -> str:
+        """Get the current git commit hash (short form)."""
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
                 cwd=root,
                 capture_output=True,
                 text=True,
-                check=True,
+                check=True
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
-            return None
-
+            return "unknown"
+    
+    def get_autodoc_dir(self) -> Path:
+        """Return the .autodoc directory path."""
+        return self.root / ".autodoc"
+    
     def is_initialized(self) -> bool:
+        """Check if autodoc has been initialized in this repository."""
+        return self.get_autodoc_dir().exists()
+    
+    def get_files(self) -> List[str]:
         """
-        Check if autodoc is initialized in this repository.
-        """
-        return self.autodoc_dir.exists()
-
-    def get_state_path(self) -> Path:
-        """
-        Get the path to the state file.
-        """
-        return self.autodoc_dir / "state.json"
-
-    def get_config_path(self) -> Path:
-        """
-        Get the path to the config file.
-        """
-        return self.autodoc_dir / "config.yaml"
-
-    def get_files(
-        self,
-        extensions: Optional[Set[str]] = None,
-        ignore_dirs: Optional[Set[str]] = None,
-    ) -> List[Path]:
-        """
-        Discover all source files in the repository.
-
-        Args:
-            extensions: Set of file extensions to include (default: SOURCE_EXTENSIONS)
-            ignore_dirs: Set of directory names to ignore (default: IGNORE_DIRS)
-
+        Get all source files in the repository as relative path strings.
+        
         Returns:
-            Sorted list of file paths relative to repository root.
+            List of relative path strings for all source files, sorted alphabetically.
         """
-        if extensions is None:
-            extensions = SOURCE_EXTENSIONS
-        if ignore_dirs is None:
-            ignore_dirs = IGNORE_DIRS
-
-        source_files: List[Path] = []
-
-        for dirpath, dirnames, filenames in os.walk(self.root):
-            # Filter out ignored directories (modifying in-place to prevent descent)
-            dirnames[:] = [
-                d for d in dirnames
-                if d not in ignore_dirs and not any(
-                    d.endswith(pattern.lstrip("*")) for pattern in ignore_dirs if "*" in pattern
-                )
-            ]
-
-            for filename in filenames:
-                ext = os.path.splitext(filename)[1].lower()
-                if ext in extensions:
-                    full_path = Path(dirpath) / filename
-                    # Store as relative path from repo root
-                    rel_path = full_path.relative_to(self.root)
-                    source_files.append(rel_path)
-
+        source_files = []
+        
+        for path in self._walk_files():
+            ext = path.suffix.lower()
+            if ext in SOURCE_EXTENSIONS or path.name in DOC_FILES:
+                rel_path = self.get_relative_path(path)
+                source_files.append(rel_path)
+        
         source_files.sort()
         return source_files
-
-    def get_absolute_path(self, relative_path: Path) -> Path:
+    
+    def get_source_files(self) -> List[Path]:
         """
-        Convert a relative path to an absolute path within the repository.
+        Get all source files in the repository.
+        
+        Returns:
+            List of Path objects for all source files, sorted alphabetically.
         """
-        return self.root / relative_path
-
+        source_files = []
+        
+        for path in self._walk_files():
+            ext = path.suffix.lower()
+            if ext in SOURCE_EXTENSIONS or path.name in DOC_FILES:
+                source_files.append(path)
+        
+        source_files.sort()
+        return source_files
+    
+    def get_all_files(self) -> List[Path]:
+        """
+        Get all files in the repository (excluding ignored directories).
+        
+        Returns:
+            List of Path objects for all files, sorted alphabetically.
+        """
+        files = list(self._walk_files())
+        files.sort()
+        return files
+    
+    def _walk_files(self):
+        """
+        Generator that yields all files, respecting ignore patterns.
+        """
+        for item in self.root.rglob("*"):
+            if item.is_file() and not self._should_ignore(item):
+                yield item
+    
+    def _should_ignore(self, path: Path) -> bool:
+        """
+        Check if a path should be ignored based on ignore patterns.
+        """
+        parts = path.relative_to(self.root).parts
+        
+        for part in parts:
+            # Check exact directory matches
+            if part in IGNORE_DIRS:
+                return True
+            # Check .egg-info pattern
+            if part.endswith(".egg-info"):
+                return True
+        
+        return False
+    
+    def get_language(self, path: Path) -> Optional[str]:
+        """
+        Get the programming language for a file based on its extension.
+        
+        Args:
+            path: Path to the file
+            
+        Returns:
+            Language name string, or None if not a recognized source file.
+        """
+        ext = path.suffix.lower()
+        return SOURCE_EXTENSIONS.get(ext)
+    
+    def get_relative_path(self, path: Path) -> str:
+        """
+        Get the path relative to the repository root.
+        
+        Args:
+            path: Absolute or relative path
+            
+        Returns:
+            String path relative to repo root.
+        """
+        if path.is_absolute():
+            return str(path.relative_to(self.root))
+        return str(path)
+    
+    def get_absolute_path(self, rel_path: str) -> Path:
+        """
+        Get the absolute path from a relative path string.
+        
+        Args:
+            rel_path: Path relative to repo root (as string)
+            
+        Returns:
+            Absolute Path object.
+        """
+        return self.root / rel_path
+    
     def to_dict(self) -> dict:
         """
-        Serialize repository info for state storage.
+        Convert repository metadata to a dictionary for state storage.
         """
         return {
             "name": self.name,
             "root": str(self.root),
-            "branch": self.branch or "",
-            "commit": self.commit or "",
+            "branch": self.branch,
+            "commit": self.commit
         }
-
-    def __repr__(self) -> str:
-        return f"Repository(name={self.name!r}, root={self.root}, branch={self.branch!r})"

@@ -1,29 +1,21 @@
 # autodoc/core/scan.py
-
 """
-Repository scanning and change detection.
-
-This module provides functionality to:
-- Compute file hashes for content comparison
-- Scan a repository for source files
-- Detect changes (new, modified, deleted files) compared to previous state
+Repository scanning module - enumerates files and computes hashes.
 """
 
-import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Any, List, Optional
+import hashlib
 
 from autodoc.core.repository import Repository
-from autodoc.core.state import remove_file, update_file
 
 
 class ChangeType(Enum):
-    """Types of file changes that can be detected."""
-
-    NEW = "new"
+    """Types of changes detected between scans."""
+    ADDED = "added"
     MODIFIED = "modified"
     DELETED = "deleted"
     UNCHANGED = "unchanged"
@@ -31,190 +23,184 @@ class ChangeType(Enum):
 
 @dataclass
 class FileChange:
-    """
-    Represents a detected change to a file.
-    """
-
+    """Represents a change to a single file."""
     path: str
     change_type: ChangeType
     old_hash: Optional[str] = None
     new_hash: Optional[str] = None
+    language: Optional[str] = None
 
-    def __repr__(self) -> str:
-        return f"FileChange({self.path!r}, {self.change_type.value})"
+    def to_dict(self) -> dict:
+        """Convert to dictionary for state storage."""
+        return {
+            "hash": self.new_hash or self.old_hash or "",
+            "change_type": self.change_type.value,
+            "language": self.language,
+            "last_modified": datetime.now(timezone.utc).isoformat()
+        }
+
+
+@dataclass
+class ScanResult:
+    """Result of a repository scan."""
+    files: Dict[str, FileChange]
+    added: List[str]
+    modified: List[str]
+    deleted: List[str]
+    unchanged: List[str]
+    
+    @property
+    def has_changes(self) -> bool:
+        """Check if any changes were detected."""
+        return bool(self.added or self.modified or self.deleted)
+    
+    @property
+    def total_files(self) -> int:
+        """Total number of tracked files."""
+        return len(self.files)
+    
+    def summary(self) -> str:
+        """Human-readable summary of scan results."""
+        parts = []
+        if self.added:
+            parts.append(f"{len(self.added)} added")
+        if self.modified:
+            parts.append(f"{len(self.modified)} modified")
+        if self.deleted:
+            parts.append(f"{len(self.deleted)} deleted")
+        if self.unchanged:
+            parts.append(f"{len(self.unchanged)} unchanged")
+        
+        if not parts:
+            return "No files found"
+        return ", ".join(parts)
 
 
 def compute_file_hash(path: Path) -> str:
     """
     Compute a stable SHA-256 hash for a file's contents.
-
+    
     Args:
-        path: Path to the file to hash.
-
+        path: Path to the file to hash
+        
     Returns:
-        Hexadecimal string of the file's SHA-256 hash.
+        Hex string of the SHA-256 hash
     """
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
-    return f"sha256:{h.hexdigest()}"
+    return h.hexdigest()
 
 
-def detect_changes(
-    repo: Repository,
-    state: Dict[str, Any],
-) -> List[FileChange]:
+def scan_repository(repo: Repository, previous_state: Dict[str, Any]) -> ScanResult:
     """
-    Detect file changes by comparing current repository state against stored state.
-
+    Scan a repository and detect changes since the last scan.
+    
     Args:
-        repo: Repository context to scan.
-        state: Current state dictionary containing previous file information.
-
+        repo: Repository context
+        previous_state: State dict from the previous scan (with 'files' key)
+        
     Returns:
-        List of FileChange objects describing all detected changes.
+        ScanResult containing all file changes
     """
-    changes: List[FileChange] = []
-    current_files = repo.get_files()
-
-    # Convert to set of string paths for easier comparison
-    current_paths = {str(f) for f in current_files}
-    previous_paths = set(state.get("files", {}).keys())
-
-    # Check for new and modified files
-    for rel_path in current_files:
-        path_str = str(rel_path)
-        abs_path = repo.get_absolute_path(rel_path)
-
+    previous_files = previous_state.get("files", {})
+    current_files: Dict[str, FileChange] = {}
+    
+    added: List[str] = []
+    modified: List[str] = []
+    deleted: List[str] = []
+    unchanged: List[str] = []
+    
+    # Get all source files from the repository
+    source_files = repo.get_source_files()
+    current_paths = set()
+    
+    # Process each current file
+    for file_path in source_files:
+        rel_path = repo.get_relative_path(file_path)
+        current_paths.add(rel_path)
+        
         try:
-            current_hash = compute_file_hash(abs_path)
-        except (OSError, IOError):
+            new_hash = compute_file_hash(file_path)
+        except (IOError, OSError):
             # Skip files we can't read
             continue
-
-        if path_str not in previous_paths:
+        
+        language = repo.get_language(file_path)
+        old_info = previous_files.get(rel_path)
+        
+        if old_info is None:
             # New file
-            changes.append(
-                FileChange(
-                    path=path_str,
-                    change_type=ChangeType.NEW,
-                    old_hash=None,
-                    new_hash=current_hash,
-                )
+            change = FileChange(
+                path=rel_path,
+                change_type=ChangeType.ADDED,
+                new_hash=new_hash,
+                language=language
             )
+            added.append(rel_path)
+        elif old_info.get("hash") != new_hash:
+            # Modified file
+            change = FileChange(
+                path=rel_path,
+                change_type=ChangeType.MODIFIED,
+                old_hash=old_info.get("hash"),
+                new_hash=new_hash,
+                language=language
+            )
+            modified.append(rel_path)
         else:
-            # Existing file - check if modified
-            old_hash = state["files"][path_str].get("hash")
-            if old_hash != current_hash:
-                changes.append(
-                    FileChange(
-                        path=path_str,
-                        change_type=ChangeType.MODIFIED,
-                        old_hash=old_hash,
-                        new_hash=current_hash,
-                    )
-                )
-            else:
-                changes.append(
-                    FileChange(
-                        path=path_str,
-                        change_type=ChangeType.UNCHANGED,
-                        old_hash=old_hash,
-                        new_hash=current_hash,
-                    )
-                )
-
-    # Check for deleted files
-    for path_str in previous_paths:
-        if path_str not in current_paths:
-            old_hash = state["files"][path_str].get("hash")
-            changes.append(
-                FileChange(
-                    path=path_str,
-                    change_type=ChangeType.DELETED,
-                    old_hash=old_hash,
-                    new_hash=None,
-                )
+            # Unchanged file
+            change = FileChange(
+                path=rel_path,
+                change_type=ChangeType.UNCHANGED,
+                old_hash=old_info.get("hash"),
+                new_hash=new_hash,
+                language=language
             )
+            unchanged.append(rel_path)
+        
+        current_files[rel_path] = change
+    
+    # Detect deleted files
+    for old_path in previous_files:
+        if old_path not in current_paths:
+            old_info = previous_files[old_path]
+            change = FileChange(
+                path=old_path,
+                change_type=ChangeType.DELETED,
+                old_hash=old_info.get("hash"),
+                language=old_info.get("language")
+            )
+            current_files[old_path] = change
+            deleted.append(old_path)
+    
+    return ScanResult(
+        files=current_files,
+        added=added,
+        modified=modified,
+        deleted=deleted,
+        unchanged=unchanged
+    )
 
-    return changes
 
-
-def scan_repository(repo: Repository, state: Dict[str, Any]) -> List[FileChange]:
+def apply_scan_to_state(state: Dict[str, Any], scan_result: ScanResult, repo: Repository) -> None:
     """
-    Scan the repository and update state to reflect current contents.
-
-    This function:
-    1. Discovers all source files in the repository
-    2. Compares against the previous state to detect changes
-    3. Updates state['files'] with current file information
-    4. Updates repository metadata in state['repo']
-
+    Apply scan results to the state dictionary.
+    
     Args:
-        repo: Repository context to scan.
-        state: State dictionary to update (modified in-place).
-
-    Returns:
-        List of FileChange objects describing all detected changes.
+        state: State dictionary to update (modified in place)
+        scan_result: Results from scan_repository()
+        repo: Repository context
     """
-    # Detect all changes
-    changes = detect_changes(repo, state)
-
-    # Current timestamp for all updates
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    # Update state based on changes
-    for change in changes:
-        if change.change_type == ChangeType.DELETED:
-            remove_file(state, change.path)
-        elif change.change_type in (ChangeType.NEW, ChangeType.MODIFIED):
-            update_file(
-                state,
-                file_path=change.path,
-                file_hash=change.new_hash,
-                change_type=change.change_type.value,
-                last_modified=timestamp,
-            )
-        # UNCHANGED files don't need state updates
-
-    # Update repository metadata
+    # Update repo metadata
     state["repo"] = repo.to_dict()
-    state["last_scan"] = timestamp
-
-    return changes
-
-
-def get_changed_files(changes: List[FileChange]) -> List[FileChange]:
-    """
-    Filter a list of changes to only include actual changes (new, modified, deleted).
-
-    Args:
-        changes: List of all file changes.
-
-    Returns:
-        List containing only NEW, MODIFIED, and DELETED changes.
-    """
-    return [c for c in changes if c.change_type != ChangeType.UNCHANGED]
-
-
-def summarize_changes(changes: List[FileChange]) -> Dict[str, int]:
-    """
-    Summarize changes by type.
-
-    Args:
-        changes: List of file changes.
-
-    Returns:
-        Dictionary with counts for each change type.
-    """
-    summary = {
-        "new": 0,
-        "modified": 0,
-        "deleted": 0,
-        "unchanged": 0,
-        "total": len(changes),
-    }
-    for change in changes:
-        summary[change.change_type.value] += 1
-    return summary
+    state["last_scan"] = datetime.now(timezone.utc).isoformat()
+    
+    # Update files - remove deleted, update/add others
+    new_files = {}
+    for path, change in scan_result.files.items():
+        if change.change_type != ChangeType.DELETED:
+            new_files[path] = change.to_dict()
+    
+    state["files"] = new_files

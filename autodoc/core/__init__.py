@@ -8,11 +8,10 @@ from autodoc.core.repository import Repository, SOURCE_EXTENSIONS, IGNORE_DIRS
 from autodoc.core.scan import (
     ChangeType,
     FileChange,
+    ScanResult,
     compute_file_hash,
-    detect_changes,
-    get_changed_files,
     scan_repository,
-    summarize_changes,
+    apply_scan_to_state,
 )
 from autodoc.core.state import (
     default_state,
@@ -30,11 +29,10 @@ __all__ = [
     # Scanning
     "ChangeType",
     "FileChange",
+    "ScanResult",
     "compute_file_hash",
-    "detect_changes",
-    "get_changed_files",
     "scan_repository",
-    "summarize_changes",
+    "apply_scan_to_state",
     # State
     "default_state",
     "load_state",
