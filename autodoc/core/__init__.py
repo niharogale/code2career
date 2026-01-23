@@ -20,6 +20,14 @@ from autodoc.core.state import (
     save_state,
     update_file,
 )
+from autodoc.core.config import AutodocConfig
+from autodoc.core.exceptions import (
+    AutodocError,
+    NotInitializedError,
+    RepositoryNotFoundError,
+    StateCorruptedError,
+    ConfigError,
+)
 
 __all__ = [
     # Repository
@@ -39,4 +47,12 @@ __all__ = [
     "remove_file",
     "save_state",
     "update_file",
+    # Configuration
+    "AutodocConfig",
+    # Exceptions
+    "AutodocError",
+    "NotInitializedError",
+    "RepositoryNotFoundError",
+    "StateCorruptedError",
+    "ConfigError",
 ]
