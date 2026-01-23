@@ -3,7 +3,7 @@ from pathlib import Path
 
 from autodoc.core.repository import Repository
 from autodoc.core.state import get_state_path, load_state
-from autodoc.artifacts.readme_generator import generate_readme, write_readme
+from autodoc.generation.readme_generator import generate_readme, write_readme
 
 app = typer.Typer(
     help="Generate README and resume based on the scan results"
