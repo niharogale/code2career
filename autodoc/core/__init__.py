@@ -28,6 +28,12 @@ from autodoc.core.exceptions import (
     StateCorruptedError,
     ConfigError,
 )
+from autodoc.core.protocols import (
+    StateManager,
+    Scanner,
+    Generator,
+    ConfigLoader,
+)
 
 __all__ = [
     # Repository
@@ -55,4 +61,9 @@ __all__ = [
     "RepositoryNotFoundError",
     "StateCorruptedError",
     "ConfigError",
+    # Protocols
+    "StateManager",
+    "Scanner",
+    "Generator",
+    "ConfigLoader",
 ]
