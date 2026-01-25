@@ -1,9 +1,13 @@
 import json
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from autodoc.core.exceptions import StateCorruptedError
+
 STATE_PATH = Path.cwd() / ".autodoc" / "state.json"
+logger = logging.getLogger(__name__)
 
 
 def default_state() -> Dict[str, Any]:
@@ -43,11 +47,36 @@ def load_state() -> Dict[str, Any]:
     try:
         with open(STATE_PATH, "r", encoding="utf-8") as f:
             state = json.load(f)
-            # Handle empty state file or missing required keys
-            if not state or "version" not in state:
+            
+            # Handle empty state file
+            if not state:
+                logger.warning("State file is empty, returning default state")
                 return default_state()
+            
+            # Validate state structure
+            if not isinstance(state, dict):
+                logger.warning(f"State file contains invalid type {type(state)}, returning default state")
+                return default_state()
+            
+            # Check for required keys
+            if "version" not in state:
+                logger.warning("State file missing 'version' key, returning default state")
+                return default_state()
+            
+            # Validate required structure
+            required_keys = ["version", "repo", "files"]
+            missing_keys = [key for key in required_keys if key not in state]
+            if missing_keys:
+                logger.warning(f"State file missing required keys: {missing_keys}, returning default state")
+                return default_state()
+            
             return state
-    except (json.JSONDecodeError, IOError):
+            
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse state file as JSON: {e}, returning default state")
+        return default_state()
+    except IOError as e:
+        logger.warning(f"Failed to read state file: {e}, returning default state")
         return default_state()
     
 def save_state(state: Dict[str, Any]) -> None:
