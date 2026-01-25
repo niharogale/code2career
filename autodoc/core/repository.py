@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List
 
+from autodoc.core.exceptions import RepositoryNotFoundError
+
 # File extensions we consider as source code
 SOURCE_EXTENSIONS = {
     ".py": "python",
@@ -101,7 +103,7 @@ class Repository:
         # Verify it's a git repository
         git_dir = root / ".git"
         if not git_dir.exists():
-            raise ValueError(f"{root} is not a git repository (no .git directory)")
+            raise RepositoryNotFoundError(str(root))
         
         # Get git metadata
         name = root.name
