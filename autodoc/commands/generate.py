@@ -3,7 +3,9 @@ from pathlib import Path
 
 from autodoc.core.repository import Repository
 from autodoc.core.state import get_state_path, load_state
-from autodoc.generation.readme_generator import generate_readme, write_readme
+from autodoc.core.config import AutodocConfig
+from autodoc.core.exceptions import NotInitializedError, RepositoryNotFoundError
+from autodoc.generation.readme_generator import generate_readme, write_readme, analyze_project_type
 
 app = typer.Typer(
     help="Generate README and resume based on the scan results"
@@ -13,7 +15,8 @@ app = typer.Typer(
 @app.command()
 def readme(
     output: str = typer.Option(None, "--output", "-o", help="Output path for README (default: README.md in repo root)"),
-    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Print README without writing to file")
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Print README without writing to file"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed generation output"),
 ):
     """
     Generate README based on the scan results.
@@ -21,8 +24,18 @@ def readme(
     autodoc_dir = get_state_path().parent
 
     if not autodoc_dir.exists():
-        typer.echo("AutoDoc is not initialized in this repository. Please run 'autodoc init' first.")
-        raise typer.Exit(code=1)
+        raise NotInitializedError()
+    
+    # Load configuration
+    try:
+        config = AutodocConfig.from_autodoc_dir(autodoc_dir)
+        config.verbose = verbose or config.verbose
+        config.dry_run = dry_run or config.dry_run
+    except Exception as e:
+        typer.echo(f"Warning: Could not load config, using defaults: {e}")
+        config = AutodocConfig.default()
+        config.verbose = verbose
+        config.dry_run = dry_run
     
     # Load state
     state = load_state()
@@ -31,12 +44,21 @@ def readme(
         typer.echo("No files in state. Please run 'autodoc scan' first.")
         raise typer.Exit(code=1)
     
+    if config.verbose:
+        typer.echo(f"Loaded state with {len(state.get('files', {}))} files")
+        analysis = analyze_project_type(state)
+        typer.echo(f"Detected language: {analysis.get('language', 'unknown')}")
+        typer.echo(f"Package manager: {analysis.get('package_manager', 'none')}")
+    
     typer.echo("Generating README...")
     
     # Generate README content
     readme_content = generate_readme(state)
     
-    if dry_run:
+    if config.verbose:
+        typer.echo(f"Generated README with {len(readme_content)} characters")
+    
+    if config.dry_run:
         typer.echo("\n--- Generated README ---\n")
         typer.echo(readme_content)
         typer.echo("\n--- End README ---")
@@ -46,7 +68,9 @@ def readme(
     try:
         repo = Repository.from_cwd()
         repo_root = repo.root
-    except ValueError:
+    except ValueError as e:
+        if config.verbose:
+            typer.echo(f"Not in a git repository, using current directory: {e}")
         repo_root = Path.cwd()
     
     if output:
@@ -63,7 +87,10 @@ def readme(
     
     # Write README
     write_readme(output_path.parent, readme_content)
-    typer.echo(f"README generated at {output_path}")
+    typer.echo(f"✓ README generated at {output_path}")
+    
+    if config.verbose:
+        typer.echo(f"File size: {len(readme_content)} bytes")
 
 
 @app.command()
