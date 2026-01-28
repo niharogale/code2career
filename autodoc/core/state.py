@@ -15,7 +15,7 @@ def default_state() -> Dict[str, Any]:
     Returns a default state according to the state schema
     """
     return {
-        "version": "1.0",
+        "version": "1.1",
         "repo": {
             "name": "",
             "root": "",
@@ -24,7 +24,8 @@ def default_state() -> Dict[str, Any]:
         },
         "last_scan": "",
         "files": {},
-        "readme_sections": {}
+        "readme_sections": {},
+        "dependency_graph": {}
     }
 
 
@@ -70,6 +71,13 @@ def load_state() -> Dict[str, Any]:
                 logger.warning(f"State file missing required keys: {missing_keys}, returning default state")
                 return default_state()
             
+            # Handle migration from v1.0 to v1.1
+            if state.get("version") == "1.0":
+                logger.info("Migrating state from v1.0 to v1.1")
+                state["version"] = "1.1"
+                if "dependency_graph" not in state:
+                    state["dependency_graph"] = {}
+            
             return state
             
     except json.JSONDecodeError as e:
@@ -92,7 +100,12 @@ def update_file(
     file_path: str,
     file_hash: str,
     change_type: str,
-    last_modified: Optional[str] = None
+    last_modified: Optional[str] = None,
+    ast_hash: Optional[str] = None,
+    semantic_category: Optional[str] = None,
+    definitions: Optional[list] = None,
+    imports: Optional[list] = None,
+    language: Optional[str] = None
 ):
     """
     Update or add a file entry in state['files'].
@@ -100,11 +113,25 @@ def update_file(
     if last_modified is None:
         last_modified = datetime.now(timezone.utc).isoformat()
     
-    state["files"][file_path] = {
+    file_entry = {
         "hash": file_hash,
         "change_type": change_type,
         "last_modified": last_modified
     }
+    
+    # Add optional AST metadata
+    if language:
+        file_entry["language"] = language
+    if ast_hash:
+        file_entry["ast_hash"] = ast_hash
+    if semantic_category:
+        file_entry["semantic_category"] = semantic_category
+    if definitions:
+        file_entry["definitions"] = definitions
+    if imports:
+        file_entry["imports"] = imports
+    
+    state["files"][file_path] = file_entry
 
 
 def remove_file(state: Dict[str, Any], file_path: str):
