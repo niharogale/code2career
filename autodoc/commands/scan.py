@@ -70,7 +70,7 @@ def scan(
             typer.echo(f"  ... and {len(scan_result.added) - 5} more")
     
     # Apply scan results to state
-    apply_scan_to_state(state, scan_result, repo)
+    apply_scan_to_state(state, scan_result, repo, scan_result.dependency_graph)
     
     # Save updated state (unless dry-run)
     if not config.dry_run:
