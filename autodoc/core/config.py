@@ -15,6 +15,38 @@ from autodoc.core.exceptions import ConfigError
 
 
 @dataclass
+class ASTParsingConfig:
+    """Configuration for AST parsing."""
+    enabled: bool = True
+    languages: List[str] = field(default_factory=lambda: [
+        "python",
+        "javascript",
+        "typescript",
+        "rust",
+        "go",
+    ])
+    skip_patterns: List[str] = field(default_factory=lambda: [
+        "*.min.js",
+        "*_pb2.py",
+        "*.generated.*",
+    ])
+
+
+@dataclass
+class DependencyAnalysisConfig:
+    """Configuration for dependency analysis."""
+    enabled: bool = True
+    detect_cycles: bool = True
+
+
+@dataclass
+class SemanticAnalysisConfig:
+    """Configuration for semantic change detection."""
+    enabled: bool = True
+    classify_changes: bool = True
+
+
+@dataclass
 class AutodocConfig:
     """
     Configuration settings for autodoc.
@@ -89,6 +121,15 @@ class AutodocConfig:
         "license",
     ])
     
+    # AST Analysis Configuration
+    ast_parsing: ASTParsingConfig = field(default_factory=ASTParsingConfig)
+    
+    # Dependency Analysis Configuration
+    dependency_analysis: DependencyAnalysisConfig = field(default_factory=DependencyAnalysisConfig)
+    
+    # Semantic Analysis Configuration
+    semantic_analysis: SemanticAnalysisConfig = field(default_factory=SemanticAnalysisConfig)
+    
     # CLI default settings
     verbose: bool = False
     dry_run: bool = False
@@ -134,12 +175,39 @@ class AutodocConfig:
                 raise ConfigError(f"Config file must contain a YAML mapping, got {type(data).__name__}")
             
             # Extract configuration values with defaults
+            defaults = cls.default()
+            
+            # Parse AST parsing config
+            ast_data = data.get("ast_parsing", {})
+            ast_parsing = ASTParsingConfig(
+                enabled=ast_data.get("enabled", defaults.ast_parsing.enabled),
+                languages=ast_data.get("languages", defaults.ast_parsing.languages),
+                skip_patterns=ast_data.get("skip_patterns", defaults.ast_parsing.skip_patterns),
+            )
+            
+            # Parse dependency analysis config
+            dep_data = data.get("dependency_analysis", {})
+            dependency_analysis = DependencyAnalysisConfig(
+                enabled=dep_data.get("enabled", defaults.dependency_analysis.enabled),
+                detect_cycles=dep_data.get("detect_cycles", defaults.dependency_analysis.detect_cycles),
+            )
+            
+            # Parse semantic analysis config
+            sem_data = data.get("semantic_analysis", {})
+            semantic_analysis = SemanticAnalysisConfig(
+                enabled=sem_data.get("enabled", defaults.semantic_analysis.enabled),
+                classify_changes=sem_data.get("classify_changes", defaults.semantic_analysis.classify_changes),
+            )
+            
             config = cls(
-                include_patterns=data.get("include_patterns", cls.default().include_patterns),
-                exclude_patterns=data.get("exclude_patterns", cls.default().exclude_patterns),
-                readme_sections=data.get("readme_sections", cls.default().readme_sections),
-                verbose=data.get("verbose", cls.default().verbose),
-                dry_run=data.get("dry_run", cls.default().dry_run),
+                include_patterns=data.get("include_patterns", defaults.include_patterns),
+                exclude_patterns=data.get("exclude_patterns", defaults.exclude_patterns),
+                readme_sections=data.get("readme_sections", defaults.readme_sections),
+                ast_parsing=ast_parsing,
+                dependency_analysis=dependency_analysis,
+                semantic_analysis=semantic_analysis,
+                verbose=data.get("verbose", defaults.verbose),
+                dry_run=data.get("dry_run", defaults.dry_run),
             )
             
             return config
@@ -254,6 +322,45 @@ class AutodocConfig:
         lines.append("readme_sections:")
         for section in config_dict["readme_sections"]:
             lines.append(f"  - {quote_if_needed(section)}")
+        
+        lines.extend([
+            "",
+            "# AST Analysis Configuration",
+            "# Controls parsing of code into Abstract Syntax Trees for semantic understanding",
+        ])
+        
+        ast_config = config_dict.get("ast_parsing", {})
+        lines.append("ast_parsing:")
+        lines.append(f"  enabled: {str(ast_config.get('enabled', True)).lower()}")
+        lines.append("  languages:")
+        for lang in ast_config.get("languages", []):
+            lines.append(f"    - {lang}")
+        lines.append("  # Skip AST parsing for these patterns (large generated files)")
+        lines.append("  skip_patterns:")
+        for pattern in ast_config.get("skip_patterns", []):
+            lines.append(f"    - {quote_if_needed(pattern)}")
+        
+        lines.extend([
+            "",
+            "# Dependency Analysis Configuration",
+            "# Controls analysis of import relationships between files",
+        ])
+        
+        dep_config = config_dict.get("dependency_analysis", {})
+        lines.append("dependency_analysis:")
+        lines.append(f"  enabled: {str(dep_config.get('enabled', True)).lower()}")
+        lines.append(f"  detect_cycles: {str(dep_config.get('detect_cycles', True)).lower()}")
+        
+        lines.extend([
+            "",
+            "# Semantic Analysis Configuration",
+            "# Controls classification of code changes (breaking, additive, internal, etc.)",
+        ])
+        
+        sem_config = config_dict.get("semantic_analysis", {})
+        lines.append("semantic_analysis:")
+        lines.append(f"  enabled: {str(sem_config.get('enabled', True)).lower()}")
+        lines.append(f"  classify_changes: {str(sem_config.get('classify_changes', True)).lower()}")
         
         lines.extend([
             "",
