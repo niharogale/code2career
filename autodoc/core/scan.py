@@ -276,16 +276,16 @@ def scan_repository(
                     for d in definitions
                 ]
                 
-                # For new files, we pass None as old AST
+                # For new files, old version doesn't exist
                 semantic_result = semantic_analyzer.classify_change(
-                    old_ast=None,
-                    new_ast=object(),  # Placeholder - we only need the classification
                     old_definitions=[],
                     new_definitions=defs,
                     old_hash=None,
                     new_hash=new_hash,
                     old_ast_hash=None,
-                    new_ast_hash=ast_hash
+                    new_ast_hash=ast_hash,
+                    file_exists_old=False,
+                    file_exists_new=True
                 )
                 change.semantic_category = semantic_result.category.value
         
@@ -333,14 +333,14 @@ def scan_repository(
                 ]
                 
                 semantic_result = semantic_analyzer.classify_change(
-                    old_ast=object(),  # Placeholder
-                    new_ast=object(),  # Placeholder
                     old_definitions=old_defs,
                     new_definitions=new_defs,
                     old_hash=old_hash,
                     new_hash=new_hash,
                     old_ast_hash=old_ast_hash,
-                    new_ast_hash=ast_hash
+                    new_ast_hash=ast_hash,
+                    file_exists_old=True,
+                    file_exists_new=True
                 )
                 change.semantic_category = semantic_result.category.value
         
@@ -399,14 +399,14 @@ def scan_repository(
                 ]
                 
                 semantic_result = semantic_analyzer.classify_change(
-                    old_ast=object(),  # Placeholder
-                    new_ast=None,
                     old_definitions=old_defs,
                     new_definitions=[],
                     old_hash=old_info.get("hash"),
                     new_hash=None,
                     old_ast_hash=old_info.get("ast_hash"),
-                    new_ast_hash=None
+                    new_ast_hash=None,
+                    file_exists_old=True,
+                    file_exists_new=False
                 )
                 change.semantic_category = semantic_result.category.value
             
