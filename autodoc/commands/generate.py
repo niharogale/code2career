@@ -6,6 +6,11 @@ from autodoc.core.state import get_state_path, load_state
 from autodoc.core.config import AutodocConfig
 from autodoc.core.exceptions import NotInitializedError, RepositoryNotFoundError
 from autodoc.generation.readme_generator import generate_readme, write_readme, analyze_project_type
+from autodoc.generation.resume_generator import (
+    generate_resume_bullets,
+    format_resume_bullets,
+    export_resume_bullets_json
+)
 
 app = typer.Typer(
     help="Generate README and resume based on the scan results"
@@ -94,15 +99,31 @@ def readme(
 
 
 @app.command()
-def resume():
+def resume(
+    author: str = typer.Option(None, "--author", "-a", help="Filter commits by author name"),
+    limit: int = typer.Option(50, "--limit", "-l", help="Maximum number of commits to analyze"),
+    max_bullets: int = typer.Option(5, "--max", "-m", help="Maximum number of bullets to generate"),
+    style: str = typer.Option("standard", "--style", "-s", help="Output style: standard, detailed, or concise"),
+    output: str = typer.Option(None, "--output", "-o", help="Output JSON file path (optional)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed generation output"),
+):
     """
-    Generate resume bullets based on the scan results.
+    Generate resume bullets based on git history and semantic changes.
     """
     autodoc_dir = get_state_path().parent
 
     if not autodoc_dir.exists():
-        typer.echo("AutoDoc is not initialized in this repository. Please run 'autodoc init' first.")
-        raise typer.Exit(code=1)
+        raise NotInitializedError()
+    
+    # Load configuration
+    try:
+        config = AutodocConfig.from_autodoc_dir(autodoc_dir)
+        config.verbose = verbose or config.verbose
+    except Exception as e:
+        if verbose:
+            typer.echo(f"Warning: Could not load config, using defaults: {e}")
+        config = AutodocConfig.default()
+        config.verbose = verbose
     
     # Load state
     state = load_state()
@@ -111,29 +132,63 @@ def resume():
         typer.echo("No files in state. Please run 'autodoc scan' first.")
         raise typer.Exit(code=1)
     
+    # Get repository root
+    try:
+        repo = Repository.from_cwd()
+        repo_root = repo.root
+    except ValueError as e:
+        typer.echo(f"Error: Not in a git repository: {e}")
+        raise typer.Exit(code=1)
+    
+    if config.verbose:
+        typer.echo(f"Analyzing git history (limit: {limit} commits)...")
+        if author:
+            typer.echo(f"Filtering by author: {author}")
+    
     typer.echo("Generating resume bullets...")
     
-    # For now, generate simple bullet points from project analysis
-    repo_info = state.get("repo", {})
-    repo_name = repo_info.get("name", "Project")
-    files = state.get("files", {})
+    # Generate resume bullets
+    bullets = generate_resume_bullets(
+        state=state,
+        repo_root=repo_root,
+        author_filter=author,
+        limit=limit
+    )
     
-    # Count languages
-    lang_counts = {}
-    for info in files.values():
-        lang = info.get("language")
-        if lang:
-            lang_counts[lang] = lang_counts.get(lang, 0) + 1
+    if not bullets:
+        typer.echo("No resume bullets could be generated. Make sure you have git commits in this repository.")
+        raise typer.Exit(code=1)
     
-    primary_lang = max(lang_counts, key=lang_counts.get) if lang_counts else "code"
-    total_files = len(files)
+    if config.verbose:
+        typer.echo(f"Generated {len(bullets)} bullets")
+    
+    # Format and display bullets
+    formatted = format_resume_bullets(bullets, style=style, max_bullets=max_bullets)
     
     typer.echo("\n--- Resume Bullets ---\n")
-    typer.echo(f"• Developed {repo_name}, a {primary_lang} project with {total_files} source files")
-    
-    if lang_counts:
-        langs = ", ".join(sorted(lang_counts.keys()))
-        typer.echo(f"• Technologies used: {langs}")
-    
+    typer.echo(formatted)
     typer.echo("\n--- End Resume Bullets ---")
-    typer.echo("\nNote: Resume generation is a placeholder. Full implementation coming in a future phase.")
+    
+    # Export to JSON if requested
+    if output:
+        import json
+        output_path = Path(output)
+        export_data = export_resume_bullets_json(bullets)
+        
+        with open(output_path, "w") as f:
+            json.dump(export_data, f, indent=2)
+        
+        typer.echo(f"\n✓ Resume bullets exported to {output_path}")
+    
+    if config.verbose:
+        typer.echo(f"\nTotal bullets generated: {len(bullets)}")
+        typer.echo(f"Displayed: {min(max_bullets, len(bullets))}")
+        
+        # Show category breakdown
+        categories = {}
+        for bullet in bullets:
+            categories[bullet.category] = categories.get(bullet.category, 0) + 1
+        
+        typer.echo("\nCategory breakdown:")
+        for category, count in sorted(categories.items()):
+            typer.echo(f"  {category}: {count}")
