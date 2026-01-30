@@ -5,7 +5,7 @@ from typing import List, Set, Dict, Optional
 from enum import Enum
 from dataclasses import dataclass
 
-from autodoc.analysis.ast_parser import Definition, DefinitionType, ParsedAST
+from autodoc.analysis.ast_parser import Definition, DefinitionType
 
 logger = logging.getLogger(__name__)
 
@@ -55,41 +55,41 @@ class SemanticChangeAnalyzer:
     
     def classify_change(
         self,
-        old_ast: Optional[ParsedAST],
-        new_ast: Optional[ParsedAST],
         old_definitions: List[Definition],
         new_definitions: List[Definition],
         old_hash: Optional[str] = None,
         new_hash: Optional[str] = None,
         old_ast_hash: Optional[str] = None,
         new_ast_hash: Optional[str] = None,
+        file_exists_old: bool = True,
+        file_exists_new: bool = True,
     ) -> SemanticChangeResult:
         """
         Classify the semantic nature of changes between two versions of a file.
         
         Args:
-            old_ast: Parsed AST of the old version (None if file is new)
-            new_ast: Parsed AST of the new version (None if file is deleted)
             old_definitions: List of definitions from the old version
             new_definitions: List of definitions from the new version
             old_hash: File content hash of old version
             new_hash: File content hash of new version
             old_ast_hash: AST structure hash of old version
             new_ast_hash: AST structure hash of new version
+            file_exists_old: Whether the old version exists (False for new files)
+            file_exists_new: Whether the new version exists (False for deleted files)
             
         Returns:
             SemanticChangeResult with classification and details
         """
         # Handle file creation
-        if old_ast is None and new_ast is not None:
+        if not file_exists_old and file_exists_new:
             return self._classify_file_creation(new_definitions)
         
         # Handle file deletion
-        if new_ast is None and old_ast is not None:
+        if file_exists_old and not file_exists_new:
             return self._classify_file_deletion(old_definitions)
         
         # Both exist - analyze changes
-        if old_ast is not None and new_ast is not None:
+        if file_exists_old and file_exists_new:
             return self._classify_file_modification(
                 old_definitions,
                 new_definitions,
@@ -99,7 +99,7 @@ class SemanticChangeAnalyzer:
                 new_ast_hash,
             )
         
-        # Edge case: both None
+        # Edge case: both don't exist
         return SemanticChangeResult(
             category=ChangeCategory.UNKNOWN,
             definition_changes=[],
