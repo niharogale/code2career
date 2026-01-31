@@ -176,7 +176,9 @@ def parse_file_ast(
                 "name": d.name,
                 "type": d.type.value,
                 "line": d.line,
-                "is_public": d.is_public
+                "is_public": d.is_public,
+                "parameters": d.parameters or [],
+                "return_type": d.return_type
             }
             for d in definitions
         ]
@@ -271,7 +273,9 @@ def scan_repository(
                         name=d["name"],
                         type=DefinitionType(d["type"]),
                         line=d["line"],
-                        is_public=d["is_public"]
+                        is_public=d["is_public"],
+                        parameters=d.get("parameters"),
+                        return_type=d.get("return_type")
                     )
                     for d in definitions
                 ]
@@ -317,7 +321,9 @@ def scan_repository(
                         name=d["name"],
                         type=DefinitionType(d["type"]),
                         line=d["line"],
-                        is_public=d["is_public"]
+                        is_public=d["is_public"],
+                        parameters=d.get("parameters"),
+                        return_type=d.get("return_type")
                     )
                     for d in old_definitions
                 ]
@@ -327,7 +333,9 @@ def scan_repository(
                         name=d["name"],
                         type=DefinitionType(d["type"]),
                         line=d["line"],
-                        is_public=d["is_public"]
+                        is_public=d["is_public"],
+                        parameters=d.get("parameters"),
+                        return_type=d.get("return_type")
                     )
                     for d in definitions
                 ]
@@ -393,7 +401,9 @@ def scan_repository(
                         name=d["name"],
                         type=DefinitionType(d["type"]),
                         line=d["line"],
-                        is_public=d["is_public"]
+                        is_public=d["is_public"],
+                        parameters=d.get("parameters"),
+                        return_type=d.get("return_type")
                     )
                     for d in old_definitions
                 ]
