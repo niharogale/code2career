@@ -35,6 +35,13 @@ class Definition:
     type: DefinitionType
     line: int
     is_public: bool = True
+    parameters: Optional[List[str]] = None
+    return_type: Optional[str] = None
+    
+    def __post_init__(self):
+        """Initialize mutable default values."""
+        if self.parameters is None:
+            self.parameters = []
 
 
 class ParsedAST:
@@ -245,11 +252,46 @@ class ASTParser:
                     name = ast.source_code[name_node.start_byte:name_node.end_byte]
                     line = node.start_point[0] + 1
                     is_public = not name.startswith("_")
+                    
+                    # Extract parameters
+                    parameters = []
+                    return_type = None
+                    params_node = node.child_by_field_name("parameters")
+                    if params_node:
+                        for child in params_node.children:
+                            if child.type == "identifier":
+                                param_name = ast.source_code[child.start_byte:child.end_byte]
+                                parameters.append(param_name)
+                            elif child.type == "typed_parameter":
+                                # Extract parameter with type annotation
+                                param_name_node = child.child_by_field_name("name") or child.children[0]
+                                if param_name_node and param_name_node.type == "identifier":
+                                    param_name = ast.source_code[param_name_node.start_byte:param_name_node.end_byte]
+                                    type_node = child.child_by_field_name("type")
+                                    if type_node:
+                                        param_type = ast.source_code[type_node.start_byte:type_node.end_byte]
+                                        parameters.append(f"{param_name}: {param_type}")
+                                    else:
+                                        parameters.append(param_name)
+                            elif child.type == "default_parameter":
+                                # Extract parameter with default value
+                                param_name_node = child.child_by_field_name("name")
+                                if param_name_node:
+                                    param_name = ast.source_code[param_name_node.start_byte:param_name_node.end_byte]
+                                    parameters.append(f"{param_name}=...")
+                    
+                    # Extract return type
+                    return_type_node = node.child_by_field_name("return_type")
+                    if return_type_node:
+                        return_type = ast.source_code[return_type_node.start_byte:return_type_node.end_byte]
+                    
                     definitions.append(Definition(
                         name=name,
                         type=DefinitionType.FUNCTION,
                         line=line,
-                        is_public=is_public
+                        is_public=is_public,
+                        parameters=parameters,
+                        return_type=return_type
                     ))
             
             elif node.type == "class_definition":
@@ -284,11 +326,46 @@ class ASTParser:
                 if name_node:
                     name = ast.source_code[name_node.start_byte:name_node.end_byte]
                     line = node.start_point[0] + 1
+                    
+                    # Extract parameters
+                    parameters = []
+                    return_type = None
+                    params_node = node.child_by_field_name("parameters")
+                    if params_node:
+                        for child in params_node.children:
+                            if child.type == "identifier":
+                                param_name = ast.source_code[child.start_byte:child.end_byte]
+                                parameters.append(param_name)
+                            elif child.type == "required_parameter":
+                                # TypeScript typed parameter
+                                param_name_node = child.child_by_field_name("pattern")
+                                if param_name_node:
+                                    param_name = ast.source_code[param_name_node.start_byte:param_name_node.end_byte]
+                                    type_node = child.child_by_field_name("type")
+                                    if type_node:
+                                        param_type = ast.source_code[type_node.start_byte:type_node.end_byte]
+                                        parameters.append(f"{param_name}: {param_type}")
+                                    else:
+                                        parameters.append(param_name)
+                            elif child.type == "optional_parameter":
+                                # TypeScript optional parameter
+                                param_name_node = child.child_by_field_name("pattern")
+                                if param_name_node:
+                                    param_name = ast.source_code[param_name_node.start_byte:param_name_node.end_byte]
+                                    parameters.append(f"{param_name}?")
+                    
+                    # Extract return type (TypeScript)
+                    return_type_node = node.child_by_field_name("return_type")
+                    if return_type_node:
+                        return_type = ast.source_code[return_type_node.start_byte:return_type_node.end_byte]
+                    
                     definitions.append(Definition(
                         name=name,
                         type=DefinitionType.FUNCTION,
                         line=line,
-                        is_public=True  # JS doesn't have private by convention
+                        is_public=True,  # JS doesn't have private by convention
+                        parameters=parameters,
+                        return_type=return_type
                     ))
             
             elif node.type == "class_declaration":
@@ -311,11 +388,34 @@ class ASTParser:
                     name = ast.source_code[name_node.start_byte:name_node.end_byte]
                     line = node.start_point[0] + 1
                     is_public = not name.startswith("_")
+                    
+                    # Extract parameters
+                    parameters = []
+                    return_type = None
+                    params_node = node.child_by_field_name("parameters")
+                    if params_node:
+                        for child in params_node.children:
+                            if child.type == "identifier":
+                                param_name = ast.source_code[child.start_byte:child.end_byte]
+                                parameters.append(param_name)
+                            elif child.type == "required_parameter":
+                                param_name_node = child.child_by_field_name("pattern")
+                                if param_name_node:
+                                    param_name = ast.source_code[param_name_node.start_byte:param_name_node.end_byte]
+                                    parameters.append(param_name)
+                    
+                    # Extract return type
+                    return_type_node = node.child_by_field_name("return_type")
+                    if return_type_node:
+                        return_type = ast.source_code[return_type_node.start_byte:return_type_node.end_byte]
+                    
                     definitions.append(Definition(
                         name=name,
                         type=DefinitionType.METHOD,
                         line=line,
-                        is_public=is_public
+                        is_public=is_public,
+                        parameters=parameters,
+                        return_type=return_type
                     ))
             
             elif node.type in ["variable_declaration", "lexical_declaration"]:
