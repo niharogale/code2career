@@ -133,7 +133,11 @@ def categorize_files_by_role(
         basename = Path(path).name.lower()
         
         # Documentation files
-        if any(basename.startswith(prefix) for prefix in ["readme", "changelog", "contributing", "license"]):
+        if any(basename.startswith(prefix) for prefix in ["readme", "changelog", "contributing"]):
+            categories["docs"].append(path)
+        
+        # License files
+        elif any(basename.startswith(prefix) for prefix in ["license", "licence", "copying"]):
             categories["docs"].append(path)
         
         # Configuration files
@@ -194,6 +198,123 @@ def extract_public_api(files: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]
     return public_apis
 
 
+def detect_frameworks(files: Dict[str, Any], language: str) -> List[str]:
+    """
+    Detect frameworks used in the project based on files and imports.
+    
+    Args:
+        files: Files dictionary from state
+        language: Primary language of the project
+        
+    Returns:
+        List of detected framework names
+    """
+    frameworks = set()
+    
+    # Check file contents and imports
+    for path, info in files.items():
+        imports = info.get("imports", [])
+        definitions = info.get("definitions", [])
+        basename = Path(path).name
+        
+        # Python frameworks
+        if language == "python":
+            # Django
+            if any("django" in imp.lower() for imp in imports):
+                frameworks.add("Django")
+            if basename in ("settings.py", "wsgi.py", "asgi.py"):
+                frameworks.add("Django")
+            if "manage.py" in path:
+                frameworks.add("Django")
+            
+            # Flask
+            if any("flask" in imp.lower() for imp in imports):
+                frameworks.add("Flask")
+            
+            # FastAPI
+            if any("fastapi" in imp.lower() for imp in imports):
+                frameworks.add("FastAPI")
+            
+            # Pytest
+            if "pytest" in path.lower() or any("pytest" in imp.lower() for imp in imports):
+                frameworks.add("pytest")
+            
+            # SQLAlchemy
+            if any("sqlalchemy" in imp.lower() for imp in imports):
+                frameworks.add("SQLAlchemy")
+            
+            # Pandas
+            if any("pandas" in imp.lower() for imp in imports):
+                frameworks.add("Pandas")
+            
+            # NumPy
+            if any("numpy" in imp.lower() for imp in imports):
+                frameworks.add("NumPy")
+        
+        # JavaScript/TypeScript frameworks
+        elif language in ("javascript", "typescript"):
+            # React
+            if any("react" in imp.lower() for imp in imports):
+                frameworks.add("React")
+            if path.endswith((".jsx", ".tsx")):
+                frameworks.add("React")
+            
+            # Vue
+            if any("vue" in imp.lower() for imp in imports):
+                frameworks.add("Vue")
+            if path.endswith(".vue"):
+                frameworks.add("Vue")
+            
+            # Angular
+            if any("@angular" in imp for imp in imports):
+                frameworks.add("Angular")
+            
+            # Express
+            if any("express" in imp.lower() for imp in imports):
+                frameworks.add("Express")
+            
+            # Next.js
+            if any("next" in imp.lower() for imp in imports):
+                frameworks.add("Next.js")
+            if basename in ("next.config.js", "next.config.ts"):
+                frameworks.add("Next.js")
+            
+            # Svelte
+            if path.endswith(".svelte"):
+                frameworks.add("Svelte")
+    
+    return sorted(list(frameworks))
+
+
+def detect_license(files: Dict[str, Any]) -> Optional[str]:
+    """
+    Detect the license file in the project.
+    
+    Args:
+        files: Files dictionary from state
+        
+    Returns:
+        License file path or None if not found
+    """
+    license_patterns = [
+        "LICENSE",
+        "LICENSE.txt",
+        "LICENSE.md",
+        "LICENCE",
+        "LICENCE.txt",
+        "LICENCE.md",
+        "COPYING",
+        "COPYING.txt",
+    ]
+    
+    for path in files.keys():
+        basename = Path(path).name
+        if basename.upper() in [p.upper() for p in license_patterns]:
+            return path
+    
+    return None
+
+
 def analyze_project_type(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Analyze the project type based on files in state.
@@ -203,6 +324,7 @@ def analyze_project_type(state: Dict[str, Any]) -> Dict[str, Any]:
         - frameworks: Detected frameworks
         - package_manager: Detected package manager
         - has_tests: Whether tests were detected
+        - license_file: Path to license file (if found)
         - dependency_graph: Loaded dependency graph
         - core_files: Core/central files
         - file_categories: Files categorized by role
@@ -214,18 +336,6 @@ def analyze_project_type(state: Dict[str, Any]) -> Dict[str, Any]:
     # Load dependency graph
     dep_graph = load_dependency_graph(state)
     
-    analysis = {
-        "language": "unknown",
-        "frameworks": [],
-        "package_manager": None,
-        "has_tests": False,
-        "entry_points": [],
-        "dependency_graph": dep_graph,
-        "core_files": identify_core_files(files, dep_graph),
-        "file_categories": categorize_files_by_role(files, dep_graph),
-        "public_apis": extract_public_api(files),
-    }
-    
     # Count languages
     lang_counts: Dict[str, int] = {}
     for path, info in files.items():
@@ -233,10 +343,24 @@ def analyze_project_type(state: Dict[str, Any]) -> Dict[str, Any]:
         if lang:
             lang_counts[lang] = lang_counts.get(lang, 0) + 1
     
+    language = "unknown"
     if lang_counts:
-        analysis["language"] = max(lang_counts, key=lang_counts.get)
+        language = max(lang_counts, key=lang_counts.get)
     
-    # Detect package manager and frameworks
+    analysis = {
+        "language": language,
+        "frameworks": detect_frameworks(files, language),
+        "package_manager": None,
+        "has_tests": False,
+        "license_file": detect_license(files),
+        "entry_points": [],
+        "dependency_graph": dep_graph,
+        "core_files": identify_core_files(files, dep_graph),
+        "file_categories": categorize_files_by_role(files, dep_graph),
+        "public_apis": extract_public_api(files),
+    }
+    
+    # Detect package manager and entry points
     for path in file_paths:
         basename = Path(path).name
         
@@ -275,12 +399,27 @@ def generate_overview_section(state: Dict[str, Any], analysis: Dict[str, Any]) -
     """Generate the overview/description section."""
     repo_name = state.get("repo", {}).get("name", "Project")
     language = analysis.get("language", "unknown")
+    frameworks = analysis.get("frameworks", [])
     
-    content = f"A {language} project."
+    parts = []
     
-    if analysis.get("frameworks"):
-        frameworks = ", ".join(analysis["frameworks"])
-        content += f" Built with {frameworks}."
+    # Basic description
+    if language != "unknown":
+        parts.append(f"A {language} project")
+    else:
+        parts.append("A software project")
+    
+    # Add framework information
+    if frameworks:
+        if len(frameworks) == 1:
+            parts.append(f"built with {frameworks[0]}")
+        elif len(frameworks) == 2:
+            parts.append(f"built with {frameworks[0]} and {frameworks[1]}")
+        else:
+            framework_list = ", ".join(frameworks[:-1]) + f", and {frameworks[-1]}"
+            parts.append(f"built with {framework_list}")
+    
+    content = " ".join(parts) + "."
     
     return ReadmeSection(
         name="overview",
@@ -567,6 +706,31 @@ def generate_architecture_section(state: Dict[str, Any], analysis: Dict[str, Any
     )
 
 
+def generate_license_section(state: Dict[str, Any], analysis: Dict[str, Any]) -> ReadmeSection:
+    """
+    Generate the license section.
+    
+    Args:
+        state: The autodoc state dictionary
+        analysis: Project analysis results
+        
+    Returns:
+        ReadmeSection with license information
+    """
+    license_file = analysis.get("license_file")
+    
+    if license_file:
+        content = f"This project is licensed under the terms specified in [`{license_file}`]({license_file})."
+    else:
+        content = "<!-- Add license information here -->"
+    
+    return ReadmeSection(
+        name="license",
+        title="License",
+        content=content
+    )
+
+
 def generate_changes_section(state: Dict[str, Any], analysis: Dict[str, Any]) -> Optional[ReadmeSection]:
     """
     Generate a section highlighting recent changes with semantic categorization.
@@ -762,20 +926,153 @@ def generate_readme(state: Dict[str, Any], include_advanced_sections: bool = Tru
         if changes_section:
             template.sections.append(changes_section)
     
-    # Add license section placeholder
-    template.sections.append(ReadmeSection(
-        name="license",
-        title="License",
-        content="<!-- Add license information here -->"
-    ))
+    # Add license section
+    template.sections.append(generate_license_section(state, analysis))
     
     return template.to_markdown(repo_name)
+
+
+def generate_and_merge_readme(
+    state: Dict[str, Any],
+    existing_readme_path: Optional[Path] = None,
+    include_advanced_sections: bool = True
+) -> str:
+    """
+    Generate a new README and merge it with existing content if available.
+    
+    This function generates a new README based on the current state and intelligently
+    merges it with an existing README, preserving user-created sections while updating
+    auto-generated ones.
+    
+    Args:
+        state: The autodoc state dictionary
+        existing_readme_path: Path to existing README (if None, generates fresh)
+        include_advanced_sections: Whether to include API, architecture, and changes sections
+        
+    Returns:
+        Merged README markdown content
+    """
+    repo_info = state.get("repo", {})
+    repo_name = repo_info.get("name", "Project")
+    
+    # Analyze project
+    analysis = analyze_project_type(state)
+    
+    # Build sections dictionary
+    sections = {}
+    
+    sections["overview"] = generate_overview_section(state, analysis)
+    sections["installation"] = generate_installation_section(state, analysis)
+    sections["usage"] = generate_usage_section(state, analysis)
+    sections["structure"] = generate_structure_section(state, analysis)
+    
+    # Add advanced sections based on AST and dependency data
+    if include_advanced_sections:
+        arch_section = generate_architecture_section(state, analysis)
+        if arch_section:
+            sections["architecture"] = arch_section
+        
+        api_section = generate_api_section(state, analysis)
+        if api_section:
+            sections["api"] = api_section
+        
+        changes_section = generate_changes_section(state, analysis)
+        if changes_section:
+            sections["recent_changes"] = changes_section
+    
+    # Add license section
+    sections["license"] = generate_license_section(state, analysis)
+    
+    # If existing README exists, merge with it
+    if existing_readme_path and existing_readme_path.exists():
+        existing_content = existing_readme_path.read_text(encoding="utf-8")
+        return merge_readme(existing_content, sections)
+    
+    # No existing README, generate fresh with title
+    template = ReadmeTemplate(sections=list(sections.values()))
+    return template.to_markdown(repo_name)
+
+
+def parse_existing_readme(content: str) -> Dict[str, str]:
+    """
+    Parse an existing README into sections.
+    
+    Args:
+        content: README content
+        
+    Returns:
+        Dictionary mapping section titles to their content
+    """
+    sections = {}
+    
+    # Split by ## headers (level 2)
+    section_pattern = re.compile(r'^## (.+)$', re.MULTILINE)
+    
+    # Find all section headers
+    matches = list(section_pattern.finditer(content))
+    
+    if not matches:
+        # No sections found, treat entire content as preamble
+        return {"_preamble": content.strip()}
+    
+    # Extract preamble (content before first section)
+    first_match = matches[0]
+    if first_match.start() > 0:
+        preamble = content[:first_match.start()].strip()
+        if preamble:
+            sections["_preamble"] = preamble
+    
+    # Extract each section
+    for i, match in enumerate(matches):
+        title = match.group(1).strip()
+        start = match.end()
+        
+        # Find end of section (start of next section or end of content)
+        if i + 1 < len(matches):
+            end = matches[i + 1].start()
+        else:
+            end = len(content)
+        
+        section_content = content[start:end].strip()
+        sections[title] = section_content
+    
+    return sections
+
+
+def is_auto_generated_section(section_name: str) -> bool:
+    """
+    Check if a section is auto-generated by autodoc.
+    
+    Auto-generated sections should be updated, while user sections should be preserved.
+    
+    Args:
+        section_name: Section name/title
+        
+    Returns:
+        True if the section is auto-generated
+    """
+    auto_generated = {
+        "Overview",
+        "Installation",
+        "Usage",
+        "Project Structure",
+        "Architecture",
+        "API Reference",
+        "Recent Changes",
+    }
+    return section_name in auto_generated
 
 
 def merge_readme(existing_content: str, new_sections: Dict[str, ReadmeSection]) -> str:
     """
     Merge new sections into an existing README, preserving manual edits
     in sections not being updated.
+    
+    This function intelligently merges README sections:
+    - Auto-generated sections (Overview, Installation, etc.) are updated with new content
+    - User-created sections are preserved as-is
+    - Section order is maintained where possible
+    - New sections are added at appropriate positions
     
     Args:
         existing_content: Current README content
@@ -784,40 +1081,137 @@ def merge_readme(existing_content: str, new_sections: Dict[str, ReadmeSection]) 
     Returns:
         Merged README content
     """
-    # Simple implementation: for now, just return the new content
-    # Future: parse existing README and merge intelligently
+    # If no existing content, generate from new sections
+    if not existing_content.strip():
+        lines = []
+        for section in new_sections.values():
+            lines.append(section.to_markdown())
+        return "\n".join(lines)
     
-    # Find section boundaries in existing content
-    section_pattern = re.compile(r'^## (.+)$', re.MULTILINE)
+    # Parse existing README into sections
+    existing_sections = parse_existing_readme(existing_content)
     
-    # For now, if we have existing content, preserve it
-    # Only add sections that don't exist
-    if existing_content.strip():
-        result = existing_content
-        for name, section in new_sections.items():
-            section_header = f"## {section.title}"
-            if section_header not in existing_content:
-                result += f"\n{section.to_markdown()}"
-        return result
+    # Build merged content
+    merged_sections = {}
+    section_order = []
     
-    # No existing content, generate from new sections
+    # First, preserve the preamble if it exists
+    if "_preamble" in existing_sections:
+        merged_sections["_preamble"] = existing_sections["_preamble"]
+        section_order.append("_preamble")
+    
+    # Track which new sections we've added
+    added_new_sections = set()
+    
+    # Process existing sections in order
+    for title, content in existing_sections.items():
+        if title == "_preamble":
+            continue
+        
+        # Check if this is an auto-generated section that should be updated
+        if is_auto_generated_section(title):
+            # Find matching new section
+            matching_new = None
+            for section_name, new_section in new_sections.items():
+                if new_section.title == title:
+                    matching_new = new_section
+                    added_new_sections.add(section_name)
+                    break
+            
+            if matching_new:
+                # Update with new content
+                merged_sections[title] = matching_new.content
+            else:
+                # Auto-generated section but no new content, preserve existing
+                merged_sections[title] = content
+        else:
+            # User-created section, preserve as-is
+            merged_sections[title] = content
+        
+        section_order.append(title)
+    
+    # Add any new sections that weren't in the existing README
+    # Insert them in a logical order
+    section_priority = {
+        "Overview": 1,
+        "Installation": 2,
+        "Usage": 3,
+        "Project Structure": 4,
+        "Architecture": 5,
+        "API Reference": 6,
+        "Recent Changes": 7,
+        "License": 99,
+    }
+    
+    for section_name, new_section in new_sections.items():
+        if section_name not in added_new_sections:
+            title = new_section.title
+            merged_sections[title] = new_section.content
+            
+            # Find appropriate position based on priority
+            priority = section_priority.get(title, 50)
+            insert_pos = len(section_order)
+            
+            for i, existing_title in enumerate(section_order):
+                if existing_title == "_preamble":
+                    continue
+                existing_priority = section_priority.get(existing_title, 50)
+                if priority < existing_priority:
+                    insert_pos = i
+                    break
+            
+            section_order.insert(insert_pos, title)
+    
+    # Build final content
     lines = []
-    for section in new_sections.values():
-        lines.append(section.to_markdown())
-    return "\n".join(lines)
+    
+    for title in section_order:
+        if title == "_preamble":
+            lines.append(merged_sections[title])
+            lines.append("")
+        else:
+            lines.append(f"## {title}")
+            lines.append("")
+            lines.append(merged_sections[title])
+            lines.append("")
+    
+    return "\n".join(lines).strip() + "\n"
 
 
-def write_readme(repo_root: Path, content: str) -> Path:
+def write_readme(repo_root: Path, content: str, merge_with_existing: bool = True) -> Path:
     """
     Write README content to the repository.
     
     Args:
         repo_root: Path to repository root
         content: README markdown content
+        merge_with_existing: If True, merge with existing README preserving user content
         
     Returns:
         Path to the written README file
     """
     readme_path = repo_root / "README.md"
+    
+    # If merge is enabled and README exists, merge the content
+    if merge_with_existing and readme_path.exists():
+        existing_content = readme_path.read_text(encoding="utf-8")
+        
+        # Parse new content into sections
+        new_sections_dict = parse_existing_readme(content)
+        new_sections = {}
+        
+        for title, section_content in new_sections_dict.items():
+            if title != "_preamble":
+                # Determine section name from title
+                section_name = title.lower().replace(" ", "_")
+                new_sections[section_name] = ReadmeSection(
+                    name=section_name,
+                    title=title,
+                    content=section_content
+                )
+        
+        # Merge with existing
+        content = merge_readme(existing_content, new_sections)
+    
     readme_path.write_text(content, encoding="utf-8")
     return readme_path
