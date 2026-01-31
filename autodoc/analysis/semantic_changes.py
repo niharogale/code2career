@@ -215,6 +215,9 @@ class SemanticChangeAnalyzer:
                 if old_def.is_public:
                     removed_public.append(old_def)
         
+        # Track breaking signature changes
+        breaking_signature_changes = []
+        
         # Find added and modified definitions
         for name, new_def in new_def_map.items():
             if name not in old_def_map:
@@ -246,25 +249,30 @@ class SemanticChangeAnalyzer:
                     )
                     if new_def.is_public:
                         modified_public.append(new_def)
+                        # Check if this is a breaking signature change
+                        if self._is_signature_change_breaking(old_def, new_def):
+                            breaking_signature_changes.append((old_def, new_def))
         
         # Classify based on changes
-        has_breaking = len(removed_public) > 0
+        has_breaking = len(removed_public) > 0 or len(breaking_signature_changes) > 0
         has_additions = len(added_public) > 0
         has_removals = len(removed_public) > 0
         
         # Determine category
-        category = self._determine_change_category(
+        category = self._determine_change_category_with_signatures(
             added_public=added_public,
             removed_public=removed_public,
             modified_public=modified_public,
+            breaking_signature_changes=breaking_signature_changes,
             all_changes=def_changes,
         )
         
         # Build description
-        description = self._build_change_description(
+        description = self._build_change_description_with_signatures(
             added_public=added_public,
             removed_public=removed_public,
             modified_public=modified_public,
+            breaking_signature_changes=breaking_signature_changes,
             all_changes=def_changes,
         )
         
@@ -281,36 +289,110 @@ class SemanticChangeAnalyzer:
         """
         Check if a definition has been modified.
         
-        Currently checks if the type or public status changed.
-        In the future, could check function signatures, etc.
+        Checks if the type, public status, or signature changed.
         """
-        return (
-            old_def.type != new_def.type or
-            old_def.is_public != new_def.is_public
-        )
+        # Type or visibility changed
+        if old_def.type != new_def.type or old_def.is_public != new_def.is_public:
+            return True
+        
+        # For functions/methods, check signature changes
+        if old_def.type in (DefinitionType.FUNCTION, DefinitionType.METHOD):
+            # Check if parameters changed
+            if old_def.parameters != new_def.parameters:
+                return True
+            
+            # Check if return type changed
+            if old_def.return_type != new_def.return_type:
+                return True
+        
+        return False
     
-    def _determine_change_category(
+    def _is_signature_change_breaking(self, old_def: Definition, new_def: Definition) -> bool:
+        """
+        Determine if a signature change is breaking.
+        
+        Breaking changes include:
+        - Removing parameters (unless they had defaults)
+        - Changing parameter types (in typed languages)
+        - Changing return type to incompatible type
+        - Reordering parameters
+        
+        Args:
+            old_def: Old definition
+            new_def: New definition
+            
+        Returns:
+            True if the signature change is breaking
+        """
+        # Only applicable to functions/methods
+        if old_def.type not in (DefinitionType.FUNCTION, DefinitionType.METHOD):
+            return False
+        
+        old_params = old_def.parameters or []
+        new_params = new_def.parameters or []
+        
+        # If parameter count decreased (and not all removed params had defaults), it's breaking
+        if len(new_params) < len(old_params):
+            # Check if removed parameters had defaults
+            removed_params = old_params[len(new_params):]
+            has_non_default = any('=' not in param for param in removed_params)
+            if has_non_default:
+                return True
+        
+        # Check for parameter type changes (breaking in typed languages)
+        for i, (old_param, new_param) in enumerate(zip(old_params, new_params)):
+            # Extract parameter names and types
+            old_name = old_param.split(':')[0].split('=')[0].strip().rstrip('?')
+            new_name = new_param.split(':')[0].split('=')[0].strip().rstrip('?')
+            
+            # Parameter name changed (reordering)
+            if old_name != new_name:
+                return True
+            
+            # Type annotation changed
+            old_has_type = ':' in old_param
+            new_has_type = ':' in new_param
+            
+            if old_has_type and new_has_type:
+                old_type = old_param.split(':', 1)[1].split('=')[0].strip()
+                new_type = new_param.split(':', 1)[1].split('=')[0].strip()
+                if old_type != new_type:
+                    return True
+        
+        # Return type changed (potentially breaking)
+        if old_def.return_type != new_def.return_type:
+            # If return type was added or removed, it's potentially breaking
+            if (old_def.return_type is None) != (new_def.return_type is None):
+                return True
+            # If both have return types but they differ, it's breaking
+            if old_def.return_type and new_def.return_type:
+                return True
+        
+        return False
+    
+    def _determine_change_category_with_signatures(
         self,
         added_public: List[Definition],
         removed_public: List[Definition],
         modified_public: List[Definition],
+        breaking_signature_changes: List[tuple],
         all_changes: List[DefinitionChange],
     ) -> ChangeCategory:
         """
-        Determine the overall change category based on the changes.
+        Determine the overall change category based on the changes, including signature analysis.
         
         Priority order:
-        1. BREAKING - if any public APIs were removed
-        2. ADDITIVE - if only public APIs were added (no removals)
+        1. BREAKING - if any public APIs were removed or have breaking signature changes
+        2. ADDITIVE - if only public APIs were added (no removals or breaking changes)
         3. INTERNAL - if only private/internal changes
         4. UNKNOWN - if unable to classify
         """
-        # Any public removals = breaking
-        if removed_public:
+        # Any public removals or breaking signature changes = breaking
+        if removed_public or breaking_signature_changes:
             return ChangeCategory.BREAKING
         
         # Only additions to public API = additive
-        if added_public and not removed_public:
+        if added_public and not removed_public and not modified_public:
             return ChangeCategory.ADDITIVE
         
         # Check if all changes are to private/internal definitions
@@ -323,32 +405,66 @@ class SemanticChangeAnalyzer:
             # All changes are internal
             return ChangeCategory.INTERNAL
         
-        # Public modifications without additions or removals
+        # Public modifications without additions or removals (and no breaking signature changes)
         if modified_public and not added_public and not removed_public:
-            # Could be breaking, but we treat signature-preserving modifications as internal
-            # In future, could analyze signatures more carefully
             return ChangeCategory.INTERNAL
+        
+        # Mixed changes (additions + modifications)
+        if added_public and modified_public and not removed_public:
+            return ChangeCategory.ADDITIVE
         
         return ChangeCategory.UNKNOWN
     
-    def _build_change_description(
+    def _determine_change_category(
         self,
         added_public: List[Definition],
         removed_public: List[Definition],
         modified_public: List[Definition],
         all_changes: List[DefinitionChange],
+    ) -> ChangeCategory:
+        """
+        Determine the overall change category based on the changes.
+        
+        Legacy method for backward compatibility.
+        
+        Priority order:
+        1. BREAKING - if any public APIs were removed
+        2. ADDITIVE - if only public APIs were added (no removals)
+        3. INTERNAL - if only private/internal changes
+        4. UNKNOWN - if unable to classify
+        """
+        return self._determine_change_category_with_signatures(
+            added_public=added_public,
+            removed_public=removed_public,
+            modified_public=modified_public,
+            breaking_signature_changes=[],
+            all_changes=all_changes,
+        )
+    
+    def _build_change_description_with_signatures(
+        self,
+        added_public: List[Definition],
+        removed_public: List[Definition],
+        modified_public: List[Definition],
+        breaking_signature_changes: List[tuple],
+        all_changes: List[DefinitionChange],
     ) -> str:
-        """Build a human-readable description of the changes."""
+        """Build a human-readable description of the changes, including signature changes."""
         parts = []
         
         if removed_public:
             parts.append(f"Removed {len(removed_public)} public API(s)")
         
+        if breaking_signature_changes:
+            parts.append(f"Breaking signature changes in {len(breaking_signature_changes)} function(s)")
+        
         if added_public:
             parts.append(f"Added {len(added_public)} public API(s)")
         
         if modified_public:
-            parts.append(f"Modified {len(modified_public)} public API(s)")
+            non_breaking_mods = len(modified_public) - len(breaking_signature_changes)
+            if non_breaking_mods > 0:
+                parts.append(f"Modified {non_breaking_mods} public API(s)")
         
         # Count internal changes
         internal_changes = [
@@ -363,6 +479,22 @@ class SemanticChangeAnalyzer:
             return "No significant changes detected"
         
         return "; ".join(parts)
+    
+    def _build_change_description(
+        self,
+        added_public: List[Definition],
+        removed_public: List[Definition],
+        modified_public: List[Definition],
+        all_changes: List[DefinitionChange],
+    ) -> str:
+        """Build a human-readable description of the changes."""
+        return self._build_change_description_with_signatures(
+            added_public=added_public,
+            removed_public=removed_public,
+            modified_public=modified_public,
+            breaking_signature_changes=[],
+            all_changes=all_changes,
+        )
     
     def analyze_import_impact(
         self,
