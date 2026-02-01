@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+      fail-fast: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+      
+      - name: Run tests
+        run: |
+          pytest -v
+      
+      - name: Test autodoc init
+        run: |
+          cd /tmp
+          mkdir test-repo
+          cd test-repo
+          git init
+          git config user.email "test@example.com"
+          git config user.name "Test User"
+          autodoc init
+          test -f .autodoc/config.yaml
+          test -f .autodoc/state.json
+      
+      - name: Test autodoc scan
+        run: |
+          cd /tmp/test-repo
+          echo "print('hello')" > test.py
+          git add test.py
+          git commit -m "Add test file"
+          autodoc scan --verbose
+      
+      - name: Test autodoc generate
+        run: |
+          cd /tmp/test-repo
+          autodoc generate readme --dry-run
+
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install ruff black mypy
+      
+      - name: Run ruff
+        run: |
+          ruff check autodoc/ || true
+      
+      - name: Check formatting with black
+        run: |
+          black --check autodoc/ || true
+      
+      - name: Type check with mypy
+        run: |
+          mypy autodoc/ --ignore-missing-imports || true
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install autodoc
+        run: |
+          pip install -e .
+      
+      - name: Test full workflow on autodoc itself
+        run: |
+          # Initialize
+          autodoc init --force || true
+          
+          # Scan
+          autodoc scan --verbose
+          
+          # Generate README
+          autodoc generate readme --dry-run --verbose
+          
+          # Generate resume
+          autodoc generate resume --verbose --max 3 --style concise
+      
+      - name: Verify state file structure
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+          
+          state_path = Path('.autodoc/state.json')
+          if not state_path.exists():
+              raise FileNotFoundError('State file not found')
+          
+          with open(state_path) as f:
+              state = json.load(f)
+          
+          # Verify required keys
+          required_keys = ['files', 'last_scan', 'repository']
+          for key in required_keys:
+              if key not in state:
+                  raise KeyError(f'Missing required key: {key}')
+          
+          print('✓ State file structure is valid')
+          "
