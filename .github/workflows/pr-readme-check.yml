@@ -1,0 +1,137 @@
+name: PR README Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - '**.py'
+      - '**.js'
+      - '**.ts'
+      - '**.tsx'
+      - '**.jsx'
+      - '**.java'
+      - '**.go'
+      - '**.rs'
+      - 'pyproject.toml'
+      - 'package.json'
+      - 'Cargo.toml'
+      - 'go.mod'
+
+jobs:
+  check-readme:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install autodoc
+        run: |
+          pip install -e .
+      
+      - name: Initialize autodoc (if needed)
+        run: |
+          if [ ! -d ".autodoc" ]; then
+            autodoc init
+          fi
+      
+      - name: Scan repository
+        run: |
+          autodoc scan --verbose
+      
+      - name: Generate expected README
+        run: |
+          autodoc generate readme --output /tmp/expected-readme.md --verbose
+      
+      - name: Compare with current README
+        id: compare
+        run: |
+          if [ ! -f "README.md" ]; then
+            echo "status=missing" >> $GITHUB_OUTPUT
+            echo "README.md does not exist"
+            exit 0
+          fi
+          
+          if diff -q README.md /tmp/expected-readme.md > /dev/null; then
+            echo "status=up-to-date" >> $GITHUB_OUTPUT
+            echo "README is up to date"
+          else
+            echo "status=outdated" >> $GITHUB_OUTPUT
+            echo "README is outdated"
+            echo "diff<<EOF" >> $GITHUB_OUTPUT
+            diff -u README.md /tmp/expected-readme.md | head -n 50 >> $GITHUB_OUTPUT || true
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Comment on PR (if outdated)
+        if: steps.compare.outputs.status == 'outdated'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const diff = `${{ steps.compare.outputs.diff }}`;
+            const body = `## 📝 README Update Suggestion
+            
+            The code changes in this PR may require README updates. Here's a preview of the suggested changes:
+            
+            <details>
+            <summary>View diff (first 50 lines)</summary>
+            
+            \`\`\`diff
+            ${diff}
+            \`\`\`
+            
+            </details>
+            
+            ### How to update
+            
+            Run the following commands to update your README:
+            
+            \`\`\`bash
+            autodoc scan
+            autodoc generate readme
+            \`\`\`
+            
+            Or let the automated workflow update it after merge.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Comment on PR (if up-to-date)
+        if: steps.compare.outputs.status == 'up-to-date'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## ✅ README is up to date
+            
+            The README matches the current codebase structure. No updates needed!
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Set status check
+        if: steps.compare.outputs.status == 'outdated'
+        run: |
+          echo "::warning::README may need updates based on code changes"
