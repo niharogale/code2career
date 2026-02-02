@@ -1,1 +1,102 @@
-# autodoc config
+# AutoDoc Configuration File
+# This file controls how autodoc scans and generates documentation for your repository.
+
+# File patterns to include when scanning (glob patterns)
+# These patterns determine which files are considered source code or documentation
+include_patterns:
+  - '*.py'
+  - '*.js'
+  - '*.ts'
+  - '*.tsx'
+  - '*.jsx'
+  - '*.java'
+  - '*.go'
+  - '*.rs'
+  - '*.rb'
+  - '*.php'
+  - '*.c'
+  - '*.cpp'
+  - '*.h'
+  - '*.hpp'
+  - '*.cs'
+  - '*.swift'
+  - '*.kt'
+  - '*.scala'
+  - '*.sh'
+  - '*.bash'
+  - '*.zsh'
+  - 'README.*'
+  - 'CHANGELOG.*'
+  - 'CONTRIBUTING.*'
+  - 'LICENSE*'
+  - pyproject.toml
+  - package.json
+  - Cargo.toml
+  - go.mod
+  - requirements.txt
+  - setup.py
+  - setup.cfg
+
+# File patterns to exclude when scanning (glob patterns)
+# These patterns determine which files and directories are ignored
+exclude_patterns:
+  - '.git/**'
+  - '.autodoc/**'
+  - '.venv/**'
+  - 'venv/**'
+  - 'env/**'
+  - '.env/**'
+  - 'node_modules/**'
+  - '__pycache__/**'
+  - '.pytest_cache/**'
+  - '.mypy_cache/**'
+  - '.tox/**'
+  - 'dist/**'
+  - 'build/**'
+  - '.eggs/**'
+  - '*.egg-info/**'
+
+# README sections to generate (in order)
+# Available sections: title, description, features, installation, usage, structure, contributing, license
+readme_sections:
+  - title
+  - description
+  - features
+  - installation
+  - usage
+  - structure
+  - contributing
+  - license
+
+# AST Analysis Configuration
+# Controls parsing of code into Abstract Syntax Trees for semantic understanding
+ast_parsing:
+  enabled: true
+  languages:
+    - python
+    - javascript
+    - typescript
+    - rust
+    - go
+  # Skip AST parsing for these patterns (large generated files)
+  skip_patterns:
+    - '*.min.js'
+    - '*_pb2.py'
+    - '*.generated.*'
+
+# Dependency Analysis Configuration
+# Controls analysis of import relationships between files
+dependency_analysis:
+  enabled: true
+  detect_cycles: true
+
+# Semantic Analysis Configuration
+# Controls classification of code changes (breaking, additive, internal, etc.)
+semantic_analysis:
+  enabled: true
+  classify_changes: true
+
+# Default CLI flags
+# These can be overridden by command-line arguments
+verbose: false
+dry_run: false

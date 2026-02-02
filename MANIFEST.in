@@ -1,0 +1,12 @@
+include README.md
+include LICENSE
+include CONTRIBUTING.md
+include ARCHITECTURE.md
+include pyproject.toml
+
+recursive-include autodoc *.py
+recursive-include autodoc py.typed
+
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
